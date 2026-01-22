@@ -1,0 +1,83 @@
+@import "tailwindcss";
+
+@theme {
+    --color-macho-red: #8A0303;
+    --color-gilded-gold: #D4AF37;
+    --color-void-black: #0F0F0F;
+    --color-decay-rust: #8B4513;
+
+    --animate-neon-flicker: neon-flicker 2s infinite;
+
+    @keyframes neon-flicker {
+
+        0%,
+        19%,
+        21%,
+        23%,
+        25%,
+        54%,
+        56%,
+        100% {
+            opacity: 1;
+            text-shadow: 0 0 5px var(--color-macho-red), 0 0 10px var(--color-macho-red);
+        }
+
+        20%,
+        24%,
+        55% {
+            opacity: 0.5;
+            text-shadow: none;
+        }
+    }
+}
+
+body {
+    @apply bg-void-black text-gilded-gold;
+}
+
+@utility bg-rust {
+    background-image: repeating-linear-gradient(45deg,
+            #2a1a10,
+            #2a1a10 10px,
+            #3d2516 10px,
+            #3d2516 20px);
+}
+
+@utility border-cracked {
+    border-style: solid;
+    border-image: linear-gradient(to right, transparent 5%, var(--color-macho-red) 15%, transparent 25%, var(--color-macho-red) 35%, transparent 45%, var(--color-macho-red) 55%, transparent 65%, var(--color-macho-red) 75%, transparent 85%, var(--color-macho-red) 95%) 1;
+}
+
+@utility animate-neon-flicker {
+    animation: var(--animate-neon-flicker);
+}
+
+@keyframes ticker {
+    0% {
+        transform: translateX(100%);
+    }
+
+    100% {
+        transform: translateX(-100%);
+    }
+}
+
+.animate-ticker {
+    animation: ticker 60s linear infinite;
+}
+
+@keyframes float-up {
+    0% {
+        transform: translateY(0) scale(1);
+        opacity: 0.8;
+    }
+
+    100% {
+        transform: translateY(-100vh) scale(0);
+        opacity: 0;
+    }
+}
+
+.animate-float-up {
+    animation: float-up 5s linear infinite;
+}
