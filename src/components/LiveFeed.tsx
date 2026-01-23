@@ -1,4 +1,4 @@
-import React from 'react';
+
 import { useGameStore } from '../store/useGameStore';
 
 const FEED_CONTENT = [
