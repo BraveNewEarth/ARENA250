@@ -87,12 +87,9 @@ export const LandmarkCard = ({ landmark, onBuild }: Props) => {
                         Boring Historical Site
                     </div>
 
-                    {/* Preview Image (Blurred/Grayscale or Desaturated) */}
-                    <div className="relative h-32 rounded overflow-hidden opacity-50 grayscale transition-all hover:grayscale-0 hover:opacity-100">
+                    {/* Landmark Image */}
+                    <div className="relative h-32 rounded overflow-hidden border border-gray-700">
                         <img src={landmark.image} alt={landmark.name} className="w-full h-full object-cover" />
-                        <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-                            <span className="text-xs font-bold uppercase tracking-widest text-white border border-white/30 px-2 py-1 bg-black/50">Preview</span>
-                        </div>
                     </div>
 
                     <div className="grid grid-cols-2 gap-2 text-sm">
