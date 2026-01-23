@@ -377,16 +377,21 @@ export const SuppressHistorians = ({ onClose }: SuppressHistoriansProps) => {
                     <motion.div
                         className="text-8xl filter transition-all duration-300 origin-center select-none"
                         style={{
-                            scale: 1 + (fireIntensity / 50), // Smooth linear scaling instead of jumpy steps
+                            scale: 1, // Base scale, override in animate
                             filter: `drop-shadow(0 0 ${Math.max(10, fireIntensity / 2)}px ${fireIntensity > 50 ? 'rgba(255,60,0,0.8)' : 'rgba(0,100,255,0.5)'})`
                         }}
                         animate={{
-                            rotate: fireIntensity > 80 ? [-2, 2, -2] : 0,
-                            scale: fireIntensity > 80 ? [1 + (fireIntensity / 50), (1 + (fireIntensity / 50)) * 1.05, 1 + (fireIntensity / 50)] : 1 + (fireIntensity / 50)
+                            rotate: fireIntensity > 80 ? [-3, 3, -3] : 0,
+                            // Dramatic scaling: 0% -> 0.5x, 50% -> 1.5x, 100% -> 4.5x
+                            scale: (() => {
+                                const base = 0.5 + (Math.pow(fireIntensity, 1.5) / 250); // Exponential growth
+                                const pulse = fireIntensity > 80 ? 1.1 : 1.0;
+                                return [base, base * pulse, base];
+                            })()
                         }}
                         transition={{ duration: 0.5, repeat: Infinity, repeatType: "reverse" }}
                     >
-                        {fireIntensity > 50 ? '🔥' : fireIntensity < 20 ? '🌊' : '📚'}
+                        {fireIntensity > 60 ? '🔥' : fireIntensity < 40 ? '🌊' : '📚'}
                     </motion.div>
 
                     <div className="absolute top-full left-1/2 -translate-x-1/2 mt-4 font-bold text-white uppercase text-xs bg-black/60 px-3 py-1 rounded backdrop-blur-sm whitespace-nowrap border border-white/10">
