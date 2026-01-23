@@ -10,8 +10,8 @@ interface Enemy {
     id: number;
     x: number;
     y: number;
-    speed: number; // Speed in pixels per millisecond
-    angle: number; // Angle to move towards center
+    speed: number;
+    angle: number;
 }
 
 interface Particle {
@@ -32,6 +32,10 @@ export const SuppressHistorians = ({ onClose }: SuppressHistoriansProps) => {
     const [enemies, setEnemies] = useState<Enemy[]>([]);
     const [particles, setParticles] = useState<Particle[]>([]);
 
+    // New State for "Stages" / "Waves"
+    const [currentStage, setCurrentStage] = useState(1);
+    const [stageMessage, setStageMessage] = useState<string | null>(null);
+
     // Game loop refs
     const requestRef = useRef<number>(undefined);
     const lastTimeRef = useRef<number>(undefined);
@@ -40,21 +44,24 @@ export const SuppressHistorians = ({ onClose }: SuppressHistoriansProps) => {
     const particleIdCounter = useRef(0);
 
     // Constants
-    const CENTER_X = 50; // Percent
-    const CENTER_Y = 50; // Percent
-    const SPAWN_RATE = 1200; // ms (base spawn rate)
-    const FIRE_RADIUS = 10; // Percent (approx radius of fire collision)
+    const CENTER_X = 50;
+    const CENTER_Y = 50;
+    const FIRE_RADIUS = 10;
+    const MAX_STAGES = 3;
+
+    // Difficulty Scaling based on Stage
+    const getSpawnRate = () => Math.max(400, 1200 - ((currentStage - 1) * 300));
+    const getEnemySpeedMultiplier = () => 1 + ((currentStage - 1) * 0.3);
 
     // Sound effects logic
-    const playSound = (type: 'good' | 'bad' | 'win' | 'lose') => {
+    const playSound = (type: 'good' | 'bad' | 'win' | 'lose' | 'stage_clear') => {
         try {
             const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
             const osc = ctx.createOscillator();
             const gain = ctx.createGain();
-
             const now = ctx.currentTime;
 
-            if (type === 'good') { // Successful click/action
+            if (type === 'good') {
                 osc.type = 'sine';
                 osc.frequency.setValueAtTime(440, now);
                 osc.frequency.exponentialRampToValueAtTime(880, now + 0.1);
@@ -62,7 +69,7 @@ export const SuppressHistorians = ({ onClose }: SuppressHistoriansProps) => {
                 gain.gain.linearRampToValueAtTime(0, now + 0.1);
                 osc.start();
                 osc.stop(now + 0.1);
-            } else if (type === 'bad') { // Enemy hit fire / fail
+            } else if (type === 'bad') {
                 osc.type = 'sawtooth';
                 osc.frequency.setValueAtTime(100, now);
                 osc.frequency.linearRampToValueAtTime(50, now + 0.2);
@@ -70,6 +77,15 @@ export const SuppressHistorians = ({ onClose }: SuppressHistoriansProps) => {
                 gain.gain.linearRampToValueAtTime(0, now + 0.2);
                 osc.start();
                 osc.stop(now + 0.2);
+            } else if (type === 'stage_clear') {
+                osc.type = 'square';
+                osc.frequency.setValueAtTime(440, now);
+                osc.frequency.setValueAtTime(554, now + 0.1);
+                osc.frequency.setValueAtTime(659, now + 0.2);
+                gain.gain.setValueAtTime(0.1, now);
+                gain.gain.linearRampToValueAtTime(0, now + 0.6);
+                osc.start();
+                osc.stop(now + 0.6);
             }
             osc.connect(gain);
             gain.connect(ctx.destination);
@@ -80,15 +96,16 @@ export const SuppressHistorians = ({ onClose }: SuppressHistoriansProps) => {
 
     const startGame = (selectedFaction: Faction) => {
         setFaction(selectedFaction);
-        setFireIntensity(50); // Reset to neutral
+        setFireIntensity(50);
         setEnemies([]);
         setParticles([]);
         setGameActive(true);
         setGameOver(false);
-        lastTimeRef.current = undefined; // Reset time
+        setCurrentStage(1);
+        setStageMessage(null);
+        lastTimeRef.current = undefined;
     };
 
-    // Spawn Logic
     const spawnEnemy = () => {
         const side = Math.floor(Math.random() * 4);
         let x = 0, y = 0;
@@ -103,28 +120,28 @@ export const SuppressHistorians = ({ onClose }: SuppressHistoriansProps) => {
         const dx = CENTER_X - x;
         const dy = CENTER_Y - y;
         const angle = Math.atan2(dy, dx);
+        const baseSpeed = 0.03 + (Math.random() * 0.03);
 
         const newEnemy: Enemy = {
             id: enemyIdCounter.current++,
             x,
             y,
-            speed: 0.03 + (Math.random() * 0.03),
+            speed: baseSpeed * getEnemySpeedMultiplier(),
             angle
         };
 
         setEnemies(prev => [...prev, newEnemy]);
     };
 
-    // Main Loop
     const animate = (time: number) => {
-        if (!gameActive || gameOver) return;
+        if (!gameActive || gameOver || stageMessage) return;
 
         if (lastTimeRef.current !== undefined) {
             const deltaTime = time - lastTimeRef.current;
 
             // Spawning
             spawnTimerRef.current += deltaTime;
-            if (spawnTimerRef.current > SPAWN_RATE) {
+            if (spawnTimerRef.current > getSpawnRate()) {
                 spawnEnemy();
                 spawnTimerRef.current = 0;
             }
@@ -138,21 +155,17 @@ export const SuppressHistorians = ({ onClose }: SuppressHistoriansProps) => {
                     const dx = Math.cos(enemy.angle) * enemy.speed * deltaTime;
                     const dy = Math.sin(enemy.angle) * enemy.speed * deltaTime;
 
-                    enemy.x += dx / 2; // Approximate scale adjustment
+                    enemy.x += dx / 2;
                     enemy.y += dy / 2;
 
-                    // Collision check
                     const dist = Math.sqrt(Math.pow(enemy.x - CENTER_X, 2) + Math.pow(enemy.y - CENTER_Y, 2));
 
                     if (dist < FIRE_RADIUS) {
-                        // Enemy reached center!
                         if (faction === 'PROMOTER') {
-                            // Enemy is Historian (Water) -> Fire goes DOWN
-                            intensityChange -= 10;
+                            intensityChange -= 5; // Reduced damage slightly for balance
                             playSound('bad');
                         } else {
-                            // Enemy is ICE (Fuel) -> Fire goes UP
-                            intensityChange += 10;
+                            intensityChange += 5;
                             playSound('bad');
                         }
                     } else {
@@ -163,25 +176,29 @@ export const SuppressHistorians = ({ onClose }: SuppressHistoriansProps) => {
                 if (intensityChange !== 0) {
                     setFireIntensity(prev => {
                         const next = Math.max(0, Math.min(100, prev + intensityChange));
-                        if (next <= 0) {
-                            // Map 0 -> Win for Statesman, Loss for Promoter
-                            if (faction === 'STATESMAN') {
-                                setGameOver(true); // Win!
-                                addLog("Victory! The Truth has extinguished the lies!", "System");
-                            } else {
-                                setGameOver(true); // Loss!
-                                addLog("Failure! The Woke Mob flooded the arena!", "Promoter");
+
+                        // Check Boundaries (0 or 100)
+                        if (faction === 'PROMOTER') {
+                            if (next >= 100) {
+                                handleStageComplete(true);
+                                return 50; // Reset visually, though handleStageComplete handles logic
                             }
-                        } else if (next >= 100) {
-                            // Map 100 -> Win for Promoter, Loss for Statesman
-                            if (faction === 'PROMOTER') {
-                                setGameOver(true); // Win!
-                                addLog("Victory! The Past is Ash! Long live the Future!", "Promoter");
-                            } else {
-                                setGameOver(true); // Loss!
-                                addLog("Failure! Ignorance has consumed us all!", "System");
+                            if (next <= 0) {
+                                handleGameOver(false);
+                                return 0;
+                            }
+                        } else {
+                            // Statesman
+                            if (next <= 0) {
+                                handleStageComplete(true);
+                                return 50;
+                            }
+                            if (next >= 100) {
+                                handleGameOver(false);
+                                return 100;
                             }
                         }
+
                         return next;
                     });
                 }
@@ -194,26 +211,63 @@ export const SuppressHistorians = ({ onClose }: SuppressHistoriansProps) => {
         requestRef.current = requestAnimationFrame(animate);
     };
 
+    const handleStageComplete = (success: boolean) => {
+        if (!success) return; // Should catch this in intensity check, but double check
+
+        if (currentStage < MAX_STAGES) {
+            // Next Stage
+            playSound('stage_clear');
+            setStageMessage(`STAGE ${currentStage} COMPLETE! INTELLIGENCE RESISTING AT ${currentStage * 100 + 10}%!`);
+            setEnemies([]); // Clear board
+
+            setTimeout(() => {
+                setCurrentStage(prev => prev + 1);
+                setFireIntensity(50);
+                setStageMessage(null);
+                lastTimeRef.current = undefined; // Reset delta timer
+            }, 2500);
+        } else {
+            // Total Victory
+            handleGameOver(true);
+        }
+    };
+
+    const handleGameOver = (victory: boolean) => {
+        setGameOver(true);
+        setGameActive(false);
+        if (victory) {
+            playSound('win');
+            if (faction === 'PROMOTER') {
+                addLog("Victory! The Past is Ash! Long live the Future!", "Promoter");
+            } else {
+                addLog("Victory! The Truth has extinguished the lies!", "System");
+            }
+        } else {
+            playSound('lose');
+            if (faction === 'PROMOTER') {
+                addLog("Failure! The Woke Mob flooded the arena!", "Promoter");
+            } else {
+                addLog("Failure! Ignorance has consumed us all!", "System");
+            }
+        }
+    };
+
     useEffect(() => {
-        if (gameActive) {
+        if (gameActive && !stageMessage && !gameOver) {
             requestRef.current = requestAnimationFrame(animate);
         }
         return () => {
             if (requestRef.current) cancelAnimationFrame(requestRef.current);
         };
-    }, [gameActive, gameOver, faction, fireIntensity]);
+    }, [gameActive, gameOver, stageMessage, faction, currentStage]); // Re-run when stage changes
 
-
-    // Interaction Handlers
     const handleEnemyClick = (id: number, e: React.MouseEvent) => {
-        e.stopPropagation(); // Don't click fire/bg
-        if (!gameActive || gameOver) return;
+        e.stopPropagation();
+        if (!gameActive || gameOver || stageMessage) return;
 
-        // Remove enemy
         setEnemies(prev => prev.filter(en => en.id !== id));
         playSound('good');
 
-        // Visual Feedack
         const enemy = enemies.find(en => en.id === id);
         if (enemy) {
             const emoji = faction === 'PROMOTER' ? '🚫' : '🕊️';
@@ -222,37 +276,38 @@ export const SuppressHistorians = ({ onClose }: SuppressHistoriansProps) => {
     };
 
     const handleCenterClick = () => {
-        if (!gameActive || gameOver) return;
+        if (!gameActive || gameOver || stageMessage) return;
 
         playSound('good');
 
-        // Manual influence
         if (faction === 'PROMOTER') {
-            // Pour Gas -> Increase Intensity
-            setFireIntensity(prev => Math.min(100, prev + 5));
+            setFireIntensity(prev => {
+                const next = Math.min(100, prev + 5);
+                if (next >= 100) handleStageComplete(true);
+                return next >= 100 ? 50 : next; // Reset immediate if win to avoid glitches
+            });
             setParticles(prev => [...prev, { id: particleIdCounter.current++, x: 50, y: 50, emoji: '⛽' }]);
         } else {
-            // Pour Water -> Decrease Intensity
-            setFireIntensity(prev => Math.max(0, prev - 5));
+            setFireIntensity(prev => {
+                const next = Math.max(0, prev - 5);
+                if (next <= 0) handleStageComplete(true);
+                return next <= 0 ? 50 : next;
+            });
             setParticles(prev => [...prev, { id: particleIdCounter.current++, x: 50, y: 50, emoji: '🪣' }]);
         }
     };
 
+    const getEnemyEmoji = () => faction === 'PROMOTER' ? '👩‍🏫' : '👮‍♂️';
 
-    // Render Helpers
-    const getEnemyEmoji = () => faction === 'PROMOTER' ? '👩‍🏫' : '👮‍♂️'; // Promoter fights Historians, Statesman fights ICE
-
-    // RENDER: Faction Selection Screen
     if (!faction) {
         return (
             <div className="fixed inset-0 z-[100] bg-black/95 flex items-center justify-center p-4">
-                <div className="max-w-4xl w-full text-center space-y-8">
+                <div className="max-w-4xl w-full text-center space-y-8 animate-in zoom-in-95 duration-300">
                     <h2 className="text-4xl md:text-6xl font-black text-white uppercase tracking-widest mb-12">
                         Battle for History
                     </h2>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                        {/* Promoter Option */}
                         <button
                             onClick={() => startGame('PROMOTER')}
                             className="group relative p-8 border-4 border-macho-red bg-zinc-900 overflow-hidden hover:scale-105 transition-all"
@@ -262,12 +317,11 @@ export const SuppressHistorians = ({ onClose }: SuppressHistoriansProps) => {
                             <h3 className="text-2xl font-black text-macho-red uppercase mb-4">The Promoter</h3>
                             <p className="text-gray-400 font-mono text-sm leading-relaxed">
                                 "Burn the past to fuel the future!"<br /><br />
-                                <strong>Goal:</strong> Reach 100% Fire Intensity.<br />
+                                <strong>Goal:</strong> Reach 100% Fire Intensity 3 Times.<br />
                                 <strong>Action:</strong> Pour Gasoline & Deport Historians.
                             </p>
                         </button>
 
-                        {/* Statesman Option */}
                         <button
                             onClick={() => startGame('STATESMAN')}
                             className="group relative p-8 border-4 border-blue-500 bg-zinc-900 overflow-hidden hover:scale-105 transition-all"
@@ -277,7 +331,7 @@ export const SuppressHistorians = ({ onClose }: SuppressHistoriansProps) => {
                             <h3 className="text-2xl font-black text-blue-500 uppercase mb-4">The Statesman</h3>
                             <p className="text-gray-400 font-mono text-sm leading-relaxed">
                                 "Preserve truth from the flames!"<br /><br />
-                                <strong>Goal:</strong> Reach 0% Fire Intensity.<br />
+                                <strong>Goal:</strong> Reach 0% Fire Intensity 3 Times.<br />
                                 <strong>Action:</strong> Douse Fire & Convert Agents.
                             </p>
                         </button>
@@ -291,84 +345,51 @@ export const SuppressHistorians = ({ onClose }: SuppressHistoriansProps) => {
         );
     }
 
-    // RENDER: Active Game
     return (
         <div className="fixed inset-0 z-[100] bg-black/95 flex items-center justify-center font-mono overflow-hidden select-none">
-            {/* Background Atmosphere */}
-            <div className={`absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] animate-pulse ${faction === 'PROMOTER' ? 'from-orange-900/40 via-black to-black' : 'from-blue-900/40 via-black to-black'
-                }`} />
+            <div className={`absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] animate-pulse ${faction === 'PROMOTER' ? 'from-orange-900/40 via-black to-black' : 'from-blue-900/40 via-black to-black'}`} />
 
-            {/* Game UI */}
-            <div className="absolute top-8 left-0 right-0 text-center z-20 pointer-events-none">
-                <h2 className={`text-3xl font-black uppercase tracking-widest ${faction === 'PROMOTER' ? 'text-macho-red' : 'text-blue-500'}`}>
+            <div className="absolute top-8 left-0 right-0 text-center z-20 pointer-events-none px-4">
+                <h2 className={`text-2xl md:text-3xl font-black uppercase tracking-widest ${faction === 'PROMOTER' ? 'text-macho-red' : 'text-blue-500'}`}>
                     {faction === 'PROMOTER' ? 'Operation: Total Recall' : 'Operation: Archivist'}
                 </h2>
-                <div className="mt-4 flex flex-col items-center gap-2">
-                    <p className="text-white text-lg font-bold">
-                        Target: {faction === 'PROMOTER' ? 'MAXIMUM FIRE (100%)' : 'EXTINGUISH FIRE (0%)'}
-                    </p>
-                    {/* Progress Bar */}
-                    <div className="w-96 h-8 bg-gray-800 rounded-full border border-gray-600 overflow-hidden relative">
-                        {/* Water Zone (Blue) */}
-                        <div className="absolute left-0 top-0 bottom-0 bg-blue-600 transition-all duration-300"
-                            style={{ width: `${100 - fireIntensity}%` }}
-                        />
-                        {/* Fire Zone (Red/Orange) Overlay - actually we can just use the background as fire or invert logic */}
-                        {/* Let's visualize Intensity directly. 0 = Full Blue. 100 = Full Red. */}
-                        <div className="absolute inset-0 bg-gradient-to-r from-blue-600 via-transparent to-red-600" />
 
-                        {/* Indicator Line */}
-                        <div className="absolute top-0 bottom-0 w-2 bg-white shadow-[0_0_10px_white] transition-all duration-100"
+                <div className="mt-2 text-xl font-bold text-white uppercase tracking-widest">
+                    Wave {currentStage} / {MAX_STAGES}
+                </div>
+
+                <div className="mt-4 flex flex-col items-center gap-2">
+                    <div className="w-full max-w-md h-8 bg-gray-800 rounded-full border border-gray-600 overflow-hidden relative">
+                        <div className="absolute inset-0 bg-gradient-to-r from-blue-600 via-transparent to-red-600" />
+                        <div className="absolute top-0 bottom-0 w-2 bg-white shadow-[0_0_10px_white] transition-all duration-100 mix-blend-overlay"
                             style={{ left: `${fireIntensity}%` }}
                         />
                     </div>
-                    <span className="text-sm text-gray-400">{Math.round(fireIntensity)}% INTENSITY</span>
                 </div>
             </div>
 
-            {/* Main Game Area */}
-            <div className="relative w-full max-w-2xl aspect-square">
-
-                {/* Center Target (Fire/Books) */}
+            <div className="relative w-full max-w-lg aspect-square">
+                {/* Center Target */}
                 <div
-                    className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-10 cursor-pointer hover:scale-110 active:scale-95 transition-transform"
+                    className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-10 cursor-pointer transition-transform active:scale-95"
                     onClick={handleCenterClick}
                 >
-                    {(() => {
-                        // Explicit Step-Function Logic
-                        let scale = 1;
-                        if (fireIntensity >= 100) scale = 4.0;
-                        else if (fireIntensity >= 90) scale = 3.5;
-                        else if (fireIntensity >= 80) scale = 3.0;
-                        else if (fireIntensity >= 70) scale = 2.5;
-                        else if (fireIntensity >= 60) scale = 2.0;
-                        else if (fireIntensity > 50) scale = 1.5;
-                        else scale = 1; // 50 or below
+                    <motion.div
+                        className="text-8xl filter transition-all duration-300 origin-center select-none"
+                        style={{
+                            scale: 1 + (fireIntensity / 50), // Smooth linear scaling instead of jumpy steps
+                            filter: `drop-shadow(0 0 ${Math.max(10, fireIntensity / 2)}px ${fireIntensity > 50 ? 'rgba(255,60,0,0.8)' : 'rgba(0,100,255,0.5)'})`
+                        }}
+                        animate={{
+                            rotate: fireIntensity > 80 ? [-2, 2, -2] : 0,
+                            scale: fireIntensity > 80 ? [1 + (fireIntensity / 50), (1 + (fireIntensity / 50)) * 1.05, 1 + (fireIntensity / 50)] : 1 + (fireIntensity / 50)
+                        }}
+                        transition={{ duration: 0.5, repeat: Infinity, repeatType: "reverse" }}
+                    >
+                        {fireIntensity > 50 ? '🔥' : fireIntensity < 20 ? '🌊' : '📚'}
+                    </motion.div>
 
-                        return (
-                            <motion.div
-                                key={`fire-${scale}`} // Force re-render on step change to ensure crisp transition
-                                className="text-8xl filter transition-all duration-100 origin-center select-none"
-                                style={{
-                                    filter: `drop-shadow(0 0 ${Math.max(10, (fireIntensity - 50) * 3)}px ${fireIntensity > 50 ? 'rgba(255,60,0,0.9)' : 'rgba(0,100,255,0.3)'})`
-                                }}
-                                initial={{ scale: scale }}
-                                animate={{
-                                    scale: fireIntensity > 50 ? [scale, scale * 1.1, scale] : scale,
-                                    opacity: fireIntensity > 50 ? 1 : 0.8,
-                                    rotate: fireIntensity >= 80 ? [-3, 3, -3] : 0
-                                }}
-                                transition={{
-                                    repeat: Infinity,
-                                    duration: Math.max(0.1, 0.6 - ((fireIntensity - 50) / 150))
-                                }}
-                            >
-                                {fireIntensity > 50 ? '🔥' : fireIntensity < 20 ? '🌊' : '📚'}
-                            </motion.div>
-                        );
-                    })()}
-
-                    <div className="text-center mt-8 font-bold text-white uppercase text-sm bg-black/50 px-2 rounded backdrop-blur-sm whitespace-nowrap">
+                    <div className="absolute top-full left-1/2 -translate-x-1/2 mt-4 font-bold text-white uppercase text-xs bg-black/60 px-3 py-1 rounded backdrop-blur-sm whitespace-nowrap border border-white/10">
                         {faction === 'PROMOTER' ? 'CLICK TO BURN!' : 'CLICK TO SAVE!'}
                     </div>
                 </div>
@@ -391,7 +412,7 @@ export const SuppressHistorians = ({ onClose }: SuppressHistoriansProps) => {
                     ))}
                 </AnimatePresence>
 
-                {/* Particles (Ephemeral) */}
+                {/* Particles */}
                 {particles.map(p => (
                     <motion.div
                         key={p.id}
@@ -407,32 +428,42 @@ export const SuppressHistorians = ({ onClose }: SuppressHistoriansProps) => {
                 ))}
             </div>
 
+            {/* Stage Message Overlay */}
+            {stageMessage && (
+                <div className="absolute inset-0 z-40 bg-black/80 flex items-center justify-center animate-in fade-in duration-300">
+                    <div className="text-center p-8 bg-zinc-900 border-2 border-gilded-gold rounded-xl shadow-2xl transform scale-125">
+                        <h3 className="text-4xl font-black text-gilded-gold mb-4 animate-bounce">
+                            🚧 PHASE COMPLETE 🚧
+                        </h3>
+                        <p className="text-white text-xl font-bold uppercase tracking-widest mb-2">
+                            {stageMessage}
+                        </p>
+                        <p className="text-sm text-gray-400">Preparing next wave...</p>
+                    </div>
+                </div>
+            )}
+
             {/* Game Over Modal */}
             {gameOver && (
                 <div className="absolute inset-0 bg-black/95 z-50 flex flex-col items-center justify-center p-8 text-center animate-in fade-in duration-500">
-                    <h3 className={`text-6xl font-black mb-6 ${(faction === 'PROMOTER' && fireIntensity >= 100) || (faction === 'STATESMAN' && fireIntensity <= 0)
-                        ? 'text-gilded-gold'
-                        : 'text-gray-500'
-                        }`}>
-                        {(faction === 'PROMOTER' && fireIntensity >= 100) || (faction === 'STATESMAN' && fireIntensity <= 0)
+                    <h3 className={`text-5xl md:text-6xl font-black mb-6 ${stageMessage ? 'text-gilded-gold' : 'text-white'}`}>
+                        {stageMessage ? "TOTAL VICTORY" : (faction === 'PROMOTER' && fireIntensity >= 100 && currentStage === MAX_STAGES) || (faction === 'STATESMAN' && fireIntensity <= 0 && currentStage === MAX_STAGES)
                             ? 'MISSION ACCOMPLISHED'
                             : 'MISSION FAILED'}
                     </h3>
 
-                    <p className="text-2xl text-white mb-12 max-w-xl leading-relaxed">
-                        {fireIntensity >= 100
-                            ? "The flames of progress have consumed the past. History is now whatever you say it is."
-                            : fireIntensity <= 0
-                                ? "The fire is out. The books are soggy but safe. The truth survives another day."
-                                : "The struggle continues..."}
+                    <p className="text-xl md:text-2xl text-gray-300 mb-12 max-w-xl leading-relaxed">
+                        {gameActive === false && enemies.length === 0 && (faction === 'PROMOTER' ? fireIntensity >= 100 : fireIntensity <= 0)
+                            ? "History has been successfully rewritten."
+                            : "The narrative control was lost."}
                     </p>
 
-                    <div className="flex gap-4">
+                    <div className="flex flex-col md:flex-row gap-4">
                         <button
                             onClick={() => startGame(faction)}
                             className="px-8 py-4 bg-white text-black font-black rounded text-xl uppercase tracking-wider hover:bg-gray-200 transition-colors"
                         >
-                            Replay Level
+                            Replay Operation
                         </button>
                         <button
                             onClick={onClose}
